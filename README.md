@@ -14,8 +14,10 @@ A set of Jira CLI helper functions for your terminal. Built on top of [go-jira](
 
 ## Installation
 
+Clone the repository and install script:
+
 ```sh
-make install
+git clone https://github.com/lukszar/jtools && cd jtools && make install
 ```
 
 This copies the scripts to `~/.jtools` and adds `source ~/.jtools` to your `~/.zprofile`.
