@@ -176,7 +176,7 @@ jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND E
 
 ### `"In Refinement"` status
 
-`jrefi` filters by `status = "In Refinement"`. This is a custom workflow status. Replace it with whatever your team calls the refinement/backlog-grooming stage (e.g. `"Backlog"`, `"Ready for Refinement"`, `"Refining"`).
+`jrefi` filters by `status = "In Refinement"`. This is a custom workflow status. Replace it with whatever your team calls the refinement stage (e.g. `"Backlog"`, `"Ready for Refinement"`, `"Refining"`).
 
 Edit `~/.jtools` and update this line in `jrefi`:
 
