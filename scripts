@@ -44,6 +44,7 @@ _jql_search() {
       --task) issueType="Task" ;;
       --bug) issueType="Bug" ;;
       --epic) issueType="Epic" ;;
+      --story) issueType="Story" ;;
       *) terms+=("$arg") ;;
     esac
   done
@@ -133,6 +134,7 @@ jhelp() {
   echo "    --task    Filter by type: Task"
   echo "    --bug     Filter by type: Bug"
   echo "    --epic    Filter by type: Epic"
+  echo "    --story   Filter by type: Story"
   echo ""
   echo "  Search terms:"
   echo "    Pass one or more quoted strings — all must match"
@@ -171,20 +173,21 @@ jstatus() {
   # Calculate days remaining
   local today endEpoch todayEpoch daysLeft
   today=$(date +%Y-%m-%d)
-  endEpoch=$(date -j -f "%Y-%m-%d" "$sprintEnd" "+%s" 2>/dev/null)
-  todayEpoch=$(date -j -f "%Y-%m-%d" "$today" "+%s" 2>/dev/null)
+  if [[ "$(uname)" == "Darwin" ]]; then
+    endEpoch=$(date -j -f "%Y-%m-%d" "$sprintEnd" "+%s" 2>/dev/null)
+    todayEpoch=$(date -j -f "%Y-%m-%d" "$today" "+%s" 2>/dev/null)
+  else
+    endEpoch=$(date -d "$sprintEnd" "+%s" 2>/dev/null)
+    todayEpoch=$(date -d "$today" "+%s" 2>/dev/null)
+  fi
   daysLeft=$(( (endEpoch - todayEpoch) / 86400 ))
 
   # Get all issues in current sprint via JQL (matches jsprint)
-  local issueData
-  issueData=$(jira issue list --jql "sprint in openSprints()" --plain --no-headers --columns STATUS 2>/dev/null)
-
-  local total countDone inProgress todo blocked
-  total=$(echo "$issueData" | grep -c .)
-  countDone=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -cE "^(Gotowe|Deployed on Prod|Rejected|Disabled)$")
-  inProgress=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -cE "^(W toku|Code Review|Deployed on Dev|Ready for UAT|Ready for Prod|To Mobile Test|To Merge|Release Candidate Setup)$")
-  todo=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -c "^Do zrobienia$")
-  blocked=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -c "^Blocked$")
+  local total countDone inProgress todo
+  total=$(jira issue list --jql "sprint in openSprints()" --plain --no-headers 2>/dev/null | grep -c .)
+  countDone=$(jira issue list --jql "sprint in openSprints() AND statusCategory = Done" --plain --no-headers 2>/dev/null | grep -c .)
+  inProgress=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'In Progress'" --plain --no-headers 2>/dev/null | grep -c .)
+  todo=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'To Do'" --plain --no-headers 2>/dev/null | grep -c .)
 
   # Progress bar
   local pct barFilled barEmpty bar
@@ -216,11 +219,7 @@ jstatus() {
   echo "      Progress    [$bar] $pct%"
   echo ""
 
-  if (( blocked > 0 )); then
-    echo "  🚨  Blocked     $blocked task(s) — check jdoctor"
-    echo ""
-    echo "======================================"
-  fi
+  echo "======================================"
 }
 
 jdoctor() {
@@ -236,6 +235,8 @@ jdoctor() {
   echo ""
   echo "⚠️  In Progress Tasks — not estimated"
   echo "-----------------------------------------"
+  # NOTE: "Estimation" is a custom Jira field. Adapt this to your team's field name
+  # (e.g. "story_points", "Story Points", or "sp").
   jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND Estimation is EMPTY'
 
   echo ""
@@ -247,6 +248,8 @@ jdoctor() {
 }
 
 jrefi() {
+  # NOTE: "In Refinement" and "Estimation" are custom to this Jira setup.
+  # Adapt the status name and field name to match your team's workflow.
   jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
 }
 

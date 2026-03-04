@@ -8,7 +8,7 @@ A set of Jira CLI helper functions for your terminal. Built on top of [go-jira](
 
 - [jira-cli](https://github.com/ankitpokhrel/jira-cli) installed and authenticated
 - zsh shell
-- macOS (BSD `date` is required by `jstatus` for date arithmetic)
+- macOS or Linux (`jstatus` uses BSD `date` on macOS and GNU `date` on Linux)
 
 ---
 
@@ -70,6 +70,7 @@ Can be combined into a single argument, e.g. `-mot`:
 | `--task` | Filter by type: Task |
 | `--bug` | Filter by type: Bug |
 | `--epic` | Filter by type: Epic |
+| `--story` | Filter by type: Story |
 
 ### Search terms
 
@@ -126,6 +127,59 @@ jsearch -tf "iOS SCREEN"
 # All epics in current sprint
 jsearch --epic -s
 
+# All stories in current sprint
+jsearch --story -s
+
 # Open a specific issue in browser
 jopen PROJ-123
+```
+
+---
+
+## Troubleshooting
+
+**`jira: command not found`**
+Install jira-cli: https://github.com/ankitpokhrel/jira-cli
+
+**`No active sprint found` in jstatus**
+Your Jira board may not have an active sprint, or jira-cli may not be pointed at the right project. Run `jira sprint list` to check.
+
+**`jstatus` shows 0 for all counts**
+This was a bug in older versions fixed in the current release. If you installed before the fix, run `make install` again to update.
+
+**Commands not found after install**
+Run `source ~/.zprofile` or open a new terminal window.
+
+---
+
+## Customization
+
+Two commands — `jrefi` and `jdoctor` — use Jira fields and statuses that are specific to a particular team setup. You will likely need to adapt them to match your own Jira configuration.
+
+### `Estimation` field
+
+`jrefi` and `jdoctor` filter on `Estimation is EMPTY`. `Estimation` is a custom field; your Jira instance probably uses a different name. Common alternatives:
+
+- `story_points`
+- `Story Points`
+- `sp`
+
+To find the correct field name, open any issue in the Jira UI, look at the estimation field name, or ask your Jira admin. Then edit `~/.jtools` and replace `Estimation` with the correct field name in these lines:
+
+```
+# jdoctor (~line 231)
+jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND Estimation is EMPTY'
+
+# jrefi (~line 245)
+jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
+```
+
+### `"In Refinement"` status
+
+`jrefi` filters by `status = "In Refinement"`. This is a custom workflow status. Replace it with whatever your team calls the refinement/backlog-grooming stage (e.g. `"Backlog"`, `"Ready for Refinement"`, `"Refining"`).
+
+Edit `~/.jtools` and update this line in `jrefi`:
+
+```
+jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
 ```
