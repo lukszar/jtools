@@ -1,0 +1,260 @@
+#!/bin/zsh
+
+alias jmine='jira issue list --jql "assignee = currentUser() AND sprint in openSprints()"'
+
+jnow() {
+  jira issue list --jql "assignee = currentUser() AND sprint in openSprints() AND statusCategory != Done"
+}
+
+
+_jql_search() {
+
+  local onlyTitle=false
+  local onlyDesc=false
+  local currentSprint=false
+  local onlyMine=false
+  local onlyOpen=false
+  local fuzzy=false
+  local issueType=
+
+  local terms=()
+
+  # Expand combined flags like -mot into -m -o -t
+  local expandedArgs=()
+  for arg in "$@"; do
+    if [[ "$arg" =~ ^-[tdcmofs]+$ ]]; then
+      for (( i=2; i<=${#arg}; i++ )); do
+        expandedArgs+=("-${arg[$i]}")
+      done
+    else
+      expandedArgs+=("$arg")
+    fi
+  done
+
+  # Parse args
+  for arg in "${expandedArgs[@]}"; do
+    case "$arg" in
+      -t) onlyTitle=true ;;
+      -d) onlyDesc=true ;;
+      -c) currentSprint=true ;;
+      -s) currentSprint=true ;;
+      -m) onlyMine=true ;;
+      -o) onlyOpen=true ;;
+      -f) fuzzy=true ;;
+      --task) issueType="Task" ;;
+      --bug) issueType="Bug" ;;
+      --epic) issueType="Epic" ;;
+      *) terms+=("$arg") ;;
+    esac
+  done
+
+  # Fuzzy: split space-separated string into individual terms
+  if $fuzzy; then
+    local fuzzyTerms=()
+    for term in "${terms[@]}"; do
+      fuzzyTerms+=(${=term})
+    done
+    terms=("${fuzzyTerms[@]}")
+  fi
+
+  # Build JQL parts
+  local jqlParts=()
+
+  $onlyMine && jqlParts+=("assignee = currentUser()")
+  $currentSprint && jqlParts+=("sprint in openSprints()")
+  $onlyOpen && jqlParts+=("statusCategory != Done")
+  [[ -n "$issueType" ]] && jqlParts+=("issuetype = \"$issueType\"")
+
+  # Default search scope
+  if ! $onlyTitle && ! $onlyDesc; then
+    onlyTitle=true
+    onlyDesc=true
+  fi
+
+  # Text search
+  if [ ${#terms[@]} -gt 0 ]; then
+    local termClauses=()
+
+    for term in "${terms[@]}"; do
+      local fieldClause=()
+
+      $onlyTitle && fieldClause+=("summary ~ \"$term\"")
+      $onlyDesc && fieldClause+=("description ~ \"$term\"")
+
+      termClauses+=("(${(j: OR :)fieldClause})")
+    done
+
+    jqlParts+=("(${(j: AND :)termClauses})")
+  fi
+
+  # Join full query
+  local finalJQL
+  finalJQL="${(j: AND :)jqlParts}"
+
+  # Run
+  if [[ -z "$finalJQL" ]]; then
+    echo "Usage: jsearch [flags] [terms...]"; return 1
+  fi
+  jira issue list --jql "$finalJQL"
+}
+
+alias jsearch='_jql_search'
+alias jfind='_jql_search'
+
+jhelp() {
+  echo ""
+  echo "jtools - Jira CLI helpers"
+  echo "========================="
+  echo ""
+  echo "COMMANDS"
+  echo ""
+  echo "  jmine              List your issues in the current sprint"
+  echo "  jnow               List your open (not done) issues in the current sprint"
+  echo "  jsprint            List all issues in the current sprint"
+  echo "  jsearch / jfind    Search issues with filters (see below)"
+  echo "  jstatus            Sprint dashboard: progress, days left, done/in-progress/todo counts"
+  echo "  jrefi              In Refinement tasks that are not estimated"
+  echo "  jdoctor            Show tasks requiring attention (unassigned, unestimated, no description)"
+  echo "  jopen <KEY>        Open issue in browser (e.g. jopen ONB4-123)"
+  echo "  jhelp              Print this command reference in the terminal"
+  echo ""
+  echo "JSEARCH / JFIND FLAGS"
+  echo ""
+  echo "  Short flags (can be combined, e.g. -mot):"
+  echo "    -t    Search in title (summary) only"
+  echo "    -d    Search in description only"
+  echo "    -s    Current sprint only  (alias: -c)"
+  echo "    -c    Current sprint only  (alias: -s)"
+  echo "    -m    Assigned to me only"
+  echo "    -o    Open issues only (statusCategory != Done)"
+  echo "    -f    Fuzzy: split a single quoted string into multiple terms"
+  echo ""
+  echo "  Issue type flags:"
+  echo "    --task    Filter by type: Task"
+  echo "    --bug     Filter by type: Bug"
+  echo "    --epic    Filter by type: Epic"
+  echo ""
+  echo "  Search terms:"
+  echo "    Pass one or more quoted strings — all must match"
+  echo "    e.g. jsearch \"iOS\" \"login\"   (title OR description contains both)"
+  echo ""
+  echo "COMMON USE CASES"
+  echo ""
+  echo "  jsearch \"login\"                     Issues mentioning 'login' (title or desc)"
+  echo "  jsearch -t \"login\"                  Title contains 'login'"
+  echo "  jsearch \"iOS\" \"SCREEN\"              Issues containing both words"
+  echo "  jsearch -f \"iOS SCREEN\"             Same as above, single quoted string"
+  echo "  jsearch -mot \"login\"                Mine + open + title only"
+  echo "  jsearch -mo --bug \"crash\"           My open Bugs mentioning 'crash'"
+  echo "  jsearch -ms                         My issues in current sprint"
+  echo "  jsearch -mos --task                 My open Tasks in current sprint"
+  echo "  jsearch --epic -s                   All Epics in current sprint"
+  echo ""
+}
+
+jstatus() {
+  # Get active sprint info
+  local sprintLine
+  sprintLine=$(jira sprint list --table --plain --no-headers --columns ID,NAME,START,END,STATE --state active 2>/dev/null | head -1)
+
+  if [[ -z "$sprintLine" ]]; then
+    echo "No active sprint found."
+    return 1
+  fi
+
+  local sprintId sprintName sprintStart sprintEnd
+  sprintId=$(echo "$sprintLine" | awk -F'\t' '{print $1}')
+  sprintName=$(echo "$sprintLine" | awk -F'\t' '{print $2}')
+  sprintStart=$(echo "$sprintLine" | awk -F'\t' '{print $3}' | cut -c1-10)
+  sprintEnd=$(echo "$sprintLine" | awk -F'\t' '{print $4}' | cut -c1-10)
+
+  # Calculate days remaining
+  local today endEpoch todayEpoch daysLeft
+  today=$(date +%Y-%m-%d)
+  endEpoch=$(date -j -f "%Y-%m-%d" "$sprintEnd" "+%s" 2>/dev/null)
+  todayEpoch=$(date -j -f "%Y-%m-%d" "$today" "+%s" 2>/dev/null)
+  daysLeft=$(( (endEpoch - todayEpoch) / 86400 ))
+
+  # Get all issues in current sprint via JQL (matches jsprint)
+  local issueData
+  issueData=$(jira issue list --jql "sprint in openSprints()" --plain --no-headers --columns STATUS 2>/dev/null)
+
+  local total countDone inProgress todo blocked
+  total=$(echo "$issueData" | grep -c .)
+  countDone=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -cE "^(Gotowe|Deployed on Prod|Rejected|Disabled)$")
+  inProgress=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -cE "^(W toku|Code Review|Deployed on Dev|Ready for UAT|Ready for Prod|To Mobile Test|To Merge|Release Candidate Setup)$")
+  todo=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -c "^Do zrobienia$")
+  blocked=$(echo "$issueData" | awk -F'\t' '{print $2}' | grep -c "^Blocked$")
+
+  # Progress bar
+  local pct barFilled barEmpty bar
+  if (( total > 0 )); then
+    pct=$(( countDone * 100 / total ))
+  else
+    pct=0
+  fi
+  barFilled=$(( pct / 5 ))
+  barEmpty=$(( 20 - barFilled ))
+  bar=$(printf '%0.s█' $(seq 1 $barFilled 2>/dev/null))$(printf '%0.s░' $(seq 1 $barEmpty 2>/dev/null))
+
+  echo ""
+  echo "📊 Sprint Dashboard — $sprintName"
+  echo "======================================"
+  echo ""
+  echo "  🗓   Period      $sprintStart → $sprintEnd"
+  if (( daysLeft < 0 )); then
+    echo "  ⚠️   Overdue     Sprint ended $(( daysLeft * -1 )) day(s) ago"
+  else
+    echo "  ⏳  Days left   $daysLeft day(s)"
+  fi
+  echo ""
+  echo "  📋  Total       $total issues"
+  echo "  ✅  Done        $countDone"
+  echo "  🔄  In Progress $inProgress"
+  echo "  🕐  To Do       $todo"
+  echo ""
+  echo "      Progress    [$bar] $pct%"
+  echo ""
+
+  if (( blocked > 0 )); then
+    echo "  🚨  Blocked     $blocked task(s) — check jdoctor"
+    echo ""
+    echo "======================================"
+  fi
+}
+
+jdoctor() {
+  echo ""
+  echo "🩺 jdoctor — issues requiring attention"
+  echo "========================================="
+
+  echo ""
+  echo "⚠️  In Progress or Blocked Tasks — unassigned"
+  echo "-----------------------------------------"
+  jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND assignee is EMPTY'
+
+  echo ""
+  echo "⚠️  In Progress Tasks — not estimated"
+  echo "-----------------------------------------"
+  jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND Estimation is EMPTY'
+
+  echo ""
+  echo "⚠️  In Progress Tasks — no description"
+  echo "-----------------------------------------"
+  jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND description is EMPTY'
+
+  echo ""
+}
+
+jrefi() {
+  jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
+}
+
+jsprint() {
+  jira issue list --jql "sprint in openSprints()"
+}
+
+jopen() {
+  [[ -z "$1" ]] && { echo "Usage: jopen <ISSUE-KEY>"; return 1; }
+  jira open "$1"
+}
