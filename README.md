@@ -36,7 +36,7 @@ Or open a new terminal window.
 
 | Command | Description |
 |---|---|
-| `jmine` | Your issues in the current sprint |
+| `jmine` | Your issues in the current sprint (includes previously assigned) |
 | `jnow` | Your open (not done) issues in the current sprint |
 | `jsprint` | All issues in the current sprint |
 | `jsearch` / `jfind` | Search issues with filters (see below) |

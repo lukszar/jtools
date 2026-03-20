@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-alias jmine='jira issue list --jql "assignee = currentUser() AND sprint in openSprints()"'
+alias jmine='jira issue list --jql "(assignee = currentUser() OR assignee was currentUser()) AND sprint in openSprints()"'
 
 jnow() {
   jira issue list --jql "assignee = currentUser() AND sprint in openSprints() AND statusCategory != Done"
@@ -109,7 +109,7 @@ jhelp() {
   echo ""
   echo "COMMANDS"
   echo ""
-  echo "  jmine              List your issues in the current sprint"
+  echo "  jmine              List your issues in the current sprint (includes previously assigned)"
   echo "  jnow               List your open (not done) issues in the current sprint"
   echo "  jsprint            List all issues in the current sprint"
   echo "  jsearch / jfind    Search issues with filters (see below)"
