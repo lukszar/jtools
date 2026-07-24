@@ -156,32 +156,41 @@ Run `source ~/.zprofile` or open a new terminal window.
 
 ## Customization
 
-Two commands — `jrefi` and `jdoctor` — use Jira fields and statuses that are specific to a particular team setup. You will likely need to adapt them to match your own Jira configuration.
+Two commands — `jrefi` and `jdoctor` — use Jira fields and statuses that vary by team. Configure them by creating `~/.jtoolsrc`:
 
-### `Estimation` field
-
-`jrefi` and `jdoctor` filter on `Estimation is EMPTY`. `Estimation` is a custom field; your Jira instance probably uses a different name. Common alternatives:
-
-- `story_points`
-- `Story Points`
-- `sp`
-
-To find the correct field name, open any issue in the Jira UI, look at the estimation field name, or ask your Jira admin. Then edit `~/.jtools` and replace `Estimation` with the correct field name in these lines:
-
-```
-# jdoctor (~line 231)
-jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND Estimation is EMPTY'
-
-# jrefi (~line 245)
-jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
+```zsh
+JTOOLS_ESTIMATION_FIELD="Story Points"   # your estimation field's JQL name
+JTOOLS_REFI_STATUS="To Do"              # your refinement workflow status's JQL name
 ```
 
-### `"In Refinement"` status
+Then reload your shell:
 
-`jrefi` filters by `status = "In Refinement"`. This is a custom workflow status. Replace it with whatever your team calls the refinement stage (e.g. `"Backlog"`, `"Ready for Refinement"`, `"Refining"`).
+```sh
+source ~/.zprofile
+```
 
-Edit `~/.jtools` and update this line in `jrefi`:
+Running `jhelp` shows the currently active values.
+
+### Finding the right field name
+
+Use the **JQL name**, not the display label shown in the Jira UI. To find it, run a test query in Jira's issue search:
 
 ```
-jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
+"Story Points" is not EMPTY
+```
+
+If it returns results, that's the right name. Common alternatives for the estimation field: `story_points`, `Estimation`, `sp`.
+
+### Finding the right status name
+
+The JQL status name may differ from the label shown in the UI (e.g. a board may display "Do zrobienia" but the JQL name is `"To Do"`). To discover valid names, run:
+
+```sh
+jira issue list --jql "project = YOUR-PROJECT" --plain --no-headers --columns key,status | awk -F'\t' '{print $2}' | sort -u
+```
+
+Then test a candidate:
+
+```sh
+jira issue list --jql 'status = "To Do"' --plain --no-headers --columns key | head -3
 ```

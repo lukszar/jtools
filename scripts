@@ -1,5 +1,13 @@
 #!/bin/zsh
 
+# --- jtools configuration ---
+# Override any of these in ~/.jtoolsrc, or export them before sourcing this file.
+JTOOLS_ESTIMATION_FIELD="${JTOOLS_ESTIMATION_FIELD:-Estimation}"
+JTOOLS_REFI_STATUS="${JTOOLS_REFI_STATUS:-In Refinement}"
+# ----------------------------
+
+[[ -f "$HOME/.jtoolsrc" ]] && source "$HOME/.jtoolsrc"
+
 alias jmine='jira issue list --jql "(assignee = currentUser() OR assignee was currentUser()) AND sprint in openSprints()"'
 
 jnow() {
@@ -78,6 +86,7 @@ _jql_search() {
 
     for term in "${terms[@]}"; do
       local fieldClause=()
+      term="${term//\"/\\\"}"
 
       $onlyTitle && fieldClause+=("summary ~ \"$term\"")
       $onlyDesc && fieldClause+=("description ~ \"$term\"")
@@ -152,6 +161,17 @@ jhelp() {
   echo "  jsearch -mos --task                 My open Tasks in current sprint"
   echo "  jsearch --epic -s                   All Epics in current sprint"
   echo ""
+  echo "CONFIGURATION"
+  echo ""
+  echo "  Create ~/.jtoolsrc to override defaults for your team:"
+  echo ""
+  echo "    JTOOLS_ESTIMATION_FIELD=\"Story Points\"     # estimation field name in your Jira"
+  echo "    JTOOLS_REFI_STATUS=\"Ready for Refinement\"  # refinement workflow status name"
+  echo ""
+  echo "  Current values:"
+  echo "    JTOOLS_ESTIMATION_FIELD = $JTOOLS_ESTIMATION_FIELD"
+  echo "    JTOOLS_REFI_STATUS      = $JTOOLS_REFI_STATUS"
+  echo ""
 }
 
 jstatus() {
@@ -170,6 +190,11 @@ jstatus() {
   sprintStart=$(echo "$sprintLine" | awk -F'\t' '{print $3}' | cut -c1-10)
   sprintEnd=$(echo "$sprintLine" | awk -F'\t' '{print $4}' | cut -c1-10)
 
+  if [[ -z "$sprintEnd" ]]; then
+    echo "Could not parse sprint dates from: $sprintLine"
+    return 1
+  fi
+
   # Calculate days remaining
   local today endEpoch todayEpoch daysLeft
   today=$(date +%Y-%m-%d)
@@ -182,17 +207,19 @@ jstatus() {
   fi
   daysLeft=$(( (endEpoch - todayEpoch) / 86400 ))
 
-  # Get all issues in current sprint via JQL (matches jsprint)
+  # Fetch counts per status category; total derived from sum to save one API call.
+  # Using --columns key reduces data transferred since we only need counts.
   local total countDone inProgress todo
-  total=$(jira issue list --jql "sprint in openSprints()" --plain --no-headers 2>/dev/null | grep -c .)
-  countDone=$(jira issue list --jql "sprint in openSprints() AND statusCategory = Done" --plain --no-headers 2>/dev/null | grep -c .)
-  inProgress=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'In Progress'" --plain --no-headers 2>/dev/null | grep -c .)
-  todo=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'To Do'" --plain --no-headers 2>/dev/null | grep -c .)
+  countDone=$(jira issue list --jql "sprint in openSprints() AND statusCategory = Done" --plain --no-headers --columns key 2>/dev/null | grep -c .)
+  inProgress=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'In Progress'" --plain --no-headers --columns key 2>/dev/null | grep -c .)
+  todo=$(jira issue list --jql "sprint in openSprints() AND statusCategory = 'To Do'" --plain --no-headers --columns key 2>/dev/null | grep -c .)
+  total=$(( countDone + inProgress + todo ))
 
   # Progress bar
   local pct barFilled barEmpty bar
   if (( total > 0 )); then
     pct=$(( countDone * 100 / total ))
+    (( pct > 100 )) && pct=100
   else
     pct=0
   fi
@@ -235,9 +262,9 @@ jdoctor() {
   echo ""
   echo "⚠️  In Progress Tasks — not estimated"
   echo "-----------------------------------------"
-  # NOTE: "Estimation" is a custom Jira field. Adapt this to your team's field name
-  # (e.g. "story_points", "Story Points", or "sp").
-  jira issue list --jql 'statusCategory = "In Progress" AND issuetype = Task AND Estimation is EMPTY'
+  # NOTE: JTOOLS_ESTIMATION_FIELD is set in the config block at the top of this file.
+  # Override it in ~/.jtoolsrc (e.g. JTOOLS_ESTIMATION_FIELD="Story Points").
+  jira issue list --jql "statusCategory = \"In Progress\" AND issuetype = Task AND \"$JTOOLS_ESTIMATION_FIELD\" is EMPTY"
 
   echo ""
   echo "⚠️  In Progress Tasks — no description"
@@ -248,9 +275,9 @@ jdoctor() {
 }
 
 jrefi() {
-  # NOTE: "In Refinement" and "Estimation" are custom to this Jira setup.
-  # Adapt the status name and field name to match your team's workflow.
-  jira issue list --jql 'statusCategory != Done AND status = "In Refinement" AND Estimation is EMPTY'
+  # NOTE: JTOOLS_REFI_STATUS and JTOOLS_ESTIMATION_FIELD are set in the config block at the top.
+  # Override them in ~/.jtoolsrc to match your team's workflow.
+  jira issue list --jql "statusCategory != Done AND status = \"$JTOOLS_REFI_STATUS\" AND \"$JTOOLS_ESTIMATION_FIELD\" is EMPTY"
 }
 
 jsprint() {
